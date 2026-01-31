@@ -31,7 +31,7 @@ class TdFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        println("Refreshed token: $token")
+
         // 异步提交
         settingsSharedPref.edit(commit = false) {
             putString("Token_Notification", token)
@@ -48,19 +48,14 @@ class TdFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         // TODO(developer): Handle FCM messages here.
-        println("collapseKey: ${remoteMessage.collapseKey}")
-        println("From: ${remoteMessage.from}")
-        println("messageId: ${remoteMessage.messageId}")
-        println("messageType: ${remoteMessage.messageType}")
-        println("senderId: ${remoteMessage.senderId}")
-        println("remoteMessage.notification: ${remoteMessage.notification}")
+
 
         //sendNotification("测试通知", "这是一条测试通知")
 
         if (settingsSharedPref.getBoolean("Use_Notification", false)) {
             // 检查消息是否包含数据有效载荷。
             if (remoteMessage.data.isNotEmpty()) {
-                println("Message data payload: ${remoteMessage.data}")
+                // println("Message data payload: ${remoteMessage.data}")
                 //val payloadJson = JSONObject(remoteMessage.data)
                 //sendNotification("测试通知1", payloadJson.getString("p"))
                 settingsSharedPref.edit(commit = true) {

@@ -274,18 +274,7 @@ class LoginActivity : BaseActivity() {
         }
     }
 
-    // 加载配置文件
-    private fun loadConfig(context: Context): Properties {
-        val properties = Properties()
-        try {
-            val inputStream = context.assets.open("config.properties")
-            inputStream.use { properties.load(it) }
-        } catch (e: IOException) {
-            e.printStackTrace()
-            // 处理异常，例如返回默认配置或通知用户
-        }
-        return properties
-    }
+
 
     private fun getAppVersion(context: Context): String {
         return try {
@@ -360,7 +349,7 @@ class LoginActivity : BaseActivity() {
                     }
                     TdApi.AuthorizationStateWaitOtherDeviceConfirmation.CONSTRUCTOR -> {
                         val link = (authorizationState as TdApi.AuthorizationStateWaitOtherDeviceConfirmation).link
-                        println(link)
+
                         loginWay.value = "QrCode"
                         // 展示二维码
                         runOnUiThread {
