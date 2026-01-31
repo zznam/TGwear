@@ -497,7 +497,7 @@ class SettingActivity : BaseActivity() {
                             dir?.forEach { file ->
                                 if (!file.deleteRecursively()) {
                                     // 如果某个文件或文件夹无法删除，可以记录日志或采取其他处理方式
-                                    println("Failed to delete: ${file.absolutePath}")
+                                    // println("Failed to delete: ${file.absolutePath}")
                                 }
                             }
                             cacheDir.deleteRecursively()
@@ -541,7 +541,7 @@ class SettingActivity : BaseActivity() {
                                     .addOnCompleteListener { task ->
                                         if (task.isSuccessful) {
                                             val token = task.result
-                                            println(token)
+
                                             settingsSharedPref.edit(commit = false) {
                                                 putString("Token_Notification", token)
                                             }
@@ -549,7 +549,7 @@ class SettingActivity : BaseActivity() {
                                                 settingsSharedPref.edit(commit = false) {
                                                     putLong("Id_Notification", id)
                                                 }
-                                                println(id)
+
                                             }
                                         }
                                     }

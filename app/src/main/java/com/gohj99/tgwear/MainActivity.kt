@@ -191,7 +191,7 @@ class MainActivity : BaseActivity() {
                         finish()
                         throw Exception("Calling")
                     } else {
-                        println("MainActivity close TgApiForPushNotification sever")
+                        // println("MainActivity close TgApiForPushNotification sever")
                         TgApiForPushNotificationManager.tgApi?.closeSuspend()
                         TgApiForPushNotificationManager.tgApi = null
                     }
@@ -469,7 +469,7 @@ class MainActivity : BaseActivity() {
                         dir?.forEach { file ->
                             if (!file.deleteRecursively()) {
                                 // 如果某个文件或文件夹无法删除，可以记录日志或采取其他处理方式
-                                println("Failed to delete: ${file.absolutePath}")
+                                // println("Failed to delete: ${file.absolutePath}")
                             }
                         }
                         // 清空 SharedPreferences

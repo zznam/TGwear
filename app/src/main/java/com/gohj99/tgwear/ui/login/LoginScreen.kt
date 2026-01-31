@@ -134,7 +134,7 @@ fun SplashLoginScreen(
         // 发送验证码按钮
         CustomButton(
             onClick = {
-                if (phoneNumber.value == "Test") {
+                if (com.gohj99.tgwear.BuildConfig.DEBUG && phoneNumber.value == "Test") {
                     onTestMode(verifyCode.value)
                 } else {
                     onSendVerifyCode(phoneNumber.value)
@@ -154,7 +154,7 @@ fun SplashLoginScreen(
                 .size(45.dp)
                 .combinedClickable(
                     onClick = {
-                        if (phoneNumber.value == "Test") {
+                        if (com.gohj99.tgwear.BuildConfig.DEBUG && phoneNumber.value == "Test") {
                             onTestMode(verifyCode.value)
                         } else {
                             onDone(verifyCode.value)

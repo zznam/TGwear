@@ -91,9 +91,9 @@ public final class BuildConfig {
     // Field from default config.
     public static final String TDLIB_VERSION = "1.8.49-e894536";
     // Field from default config.
-    public static final String TELEGRAM_API_HASH = "dafae213c4ac948a2e24e80861b032c6";
+    public static final String TELEGRAM_API_HASH = "";
     // Field from default config.
-    public static final int TELEGRAM_API_ID = 20508610;
+    public static final int TELEGRAM_API_ID = 0;
     // Field from default config.
     public static final String TELEGRAM_RESOURCES_CHANNEL = "Y2xvdWRfdGd4X2FuZHJvaWRfcmVzb3Vy";
     // Field from default config.
