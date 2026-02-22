@@ -1,8 +1,9 @@
 # TGwear Architecture Documentation
 
 > **Generated:** 2026-02-01  
+> **Updated:** 2026-02-22  
 > **Project:** TGwear - Telegram Client for Wear OS  
-> **Version:** Analysis based on current codebase
+> **Version:** Analysis based on current codebase (post connection-fix update)
 
 ---
 
@@ -14,8 +15,9 @@
 4. [Data Flow](#data-flow)
 5. [Key Components](#key-components)
 6. [Best Practices Analysis](#best-practices-analysis)
-7. [Improvement Recommendations](#improvement-recommendations)
-8. [Security Considerations](#security-considerations)
+7. [Recent Changes (2026-02-22)](#recent-changes-2026-02-22)
+8. [Improvement Recommendations](#improvement-recommendations)
+9. [Security Considerations](#security-considerations)
 
 ---
 
@@ -71,6 +73,7 @@ graph TB
         TDLIB[TDLib<br/>Telegram Database Library]
         FCM[Firebase Cloud Messaging]
         VOIP[VoIP Module<br/>Voice Calls]
+        CM[ConnectivityManager<br/>Network Monitoring]
     end
     
     subgraph "Remote"
@@ -89,6 +92,9 @@ graph TB
     TG --> SR
     TG --> MODEL
     TG --> SP
+    TG --> CM
+    
+    CM -->|SetNetworkType| TDLIB
     
     UH --> MODEL
     
@@ -110,7 +116,7 @@ graph TB
     class MA,CA,LA,SA,VA,MC,CC,LC,SC ui
     class TG,UH,CS,SR,TPN app
     class MODEL,SP data
-    class TDLIB,FCM,VOIP external
+    class TDLIB,FCM,VOIP,CM external
     class TG_SERVER remote
 ```
 
@@ -262,10 +268,19 @@ stateDiagram-v2
     WaitingForNetwork --> Connecting: Network available
     Connecting --> ConnectingToProxy: Proxy configured
     Connecting --> Updating: Connected
+    Connecting --> Connecting: Recovery timer (30s)\nForces network type refresh
     ConnectingToProxy --> Updating: Proxy connected
+    ConnectingToProxy --> ConnectingToProxy: Recovery timer (30s)
     Updating --> Ready: Sync complete
     Ready --> Connecting: Connection lost
     Ready --> [*]: App closed
+    
+    note right of Connecting
+        NetworkCallback monitors connectivity.
+        On Wear OS, checks for Wi-Fi, BT proxy,
+        and LTE before reporting offline.
+        30s recovery timer forces reconnect if stuck.
+    end note
 ```
 
 ---
@@ -285,10 +300,41 @@ object TgApiManager {
 ```kotlin
 // UpdateHandle.kt - handleConnectionUpdate()
 when (update.state.constructor) {
-    ConnectionStateReady.CONSTRUCTOR -> topTitle.value = ""
-    ConnectionStateConnecting.CONSTRUCTOR -> topTitle.value = "Connecting"
-    ConnectionStateWaitingForNetwork.CONSTRUCTOR -> topTitle.value = "Offline"
+    ConnectionStateReady.CONSTRUCTOR -> {
+        isInConnectingState = false
+        cancelConnectionRecovery()
+        topTitle.value = ""
+    }
+    ConnectionStateConnecting.CONSTRUCTOR -> {
+        isInConnectingState = true
+        topTitle.value = "Connecting"
+        scheduleConnectionRecovery()   // 30s auto-retry
+    }
+    ConnectionStateWaitingForNetwork.CONSTRUCTOR -> {
+        isInConnectingState = false
+        cancelConnectionRecovery()
+        topTitle.value = "Offline"
+    }
 }
+```
+
+### Network Connectivity Monitor (New)
+
+```kotlin
+// TgApi.kt - Registered in init {}
+// Uses registerDefaultNetworkCallback to track Wear OS preferred network
+// (handles Wi-Fi, Bluetooth proxy, LTE)
+connectivityManager.registerDefaultNetworkCallback(object : NetworkCallback() {
+    override fun onAvailable(network: Network) {
+        client.send(SetNetworkType(getActiveNetworkType())) { ... }
+        cancelConnectionRecovery()
+    }
+    override fun onLost(network: Network) {
+        // Check for remaining networks (e.g. BT proxy) before going offline
+        val remaining = getActiveNetworkType()
+        client.send(SetNetworkType(remaining)) { ... }
+    }
+})
 ```
 
 ---
@@ -308,17 +354,82 @@ when (update.state.constructor) {
 
 ### ⚠️ Issues Found
 
-| Severity | Issue | Location | Impact |
+| Severity | Issue | Location | Status |
 |----------|-------|----------|--------|
-| 🔴 **Critical** | Hardcoded API credentials in assets | `config.properties` | Security vulnerability - credentials exposed in APK |
-| 🔴 **Critical** | Static field leak annotations suppressed | `TgApiManager`, `ChatsListManager` | Memory leaks possible |
-| 🟠 **High** | Excessive use of `runBlocking` | Multiple files (24+ occurrences) | Blocks main thread, ANR risk |
-| 🟠 **High** | Console logging with `println` | 300+ occurrences throughout | Performance overhead, security risk |
-| 🟠 **High** | Generic exception catching | 50+ `catch (e: Exception)` blocks | Swallows specific errors |
-| 🟡 **Medium** | Test mode backdoor | `TgApi.kt:127` | Bypasses normal flow for specific user |
-| 🟡 **Medium** | No dependency injection | Throughout | Tight coupling, hard to test |
-| 🟡 **Medium** | Large monolithic files | `UpdateHandle.kt` (1000+ lines) | Hard to maintain |
-| 🟢 **Low** | Mixed language in comments | Throughout | Chinese/English mix reduces readability |
+| 🔴 **Critical** | Hardcoded API credentials in assets | `config.properties` | ⚠️ Open |
+| 🔴 **Critical** | Static field leak annotations suppressed | `TgApiManager`, `ChatsListManager` | ⚠️ Open |
+| 🟠 ~~**High**~~ | ~~Excessive use of `runBlocking`~~ | ~~Multiple files (24+ occurrences)~~ | ✅ **Fixed** (2026-02-22) |
+| 🟠 **High** | Console logging with `println` | 300+ occurrences throughout | ⚠️ Open |
+| 🟠 **High** | Generic exception catching | 50+ `catch (e: Exception)` blocks | ⚠️ Open |
+| 🟡 **Medium** | Test mode backdoor | `TgApi.kt:127` | ⚠️ Open |
+| 🟡 **Medium** | No dependency injection | Throughout | ⚠️ Open |
+| 🟡 **Medium** | Large monolithic files | `UpdateHandle.kt` (1000+ lines) | ⚠️ Open |
+| 🟢 **Low** | Mixed language in comments | Throughout | ⚠️ Open |
+
+---
+
+## Recent Changes (2026-02-22)
+
+### Connection Stability Overhaul
+
+Four major fixes were implemented to resolve the intermittent "Connecting..." issue that required force-stopping the app:
+
+#### 1. 🛜 Network Change Detection (`TgApi.kt`)
+
+**Problem:** TDLib had no awareness of Android network changes. On Wear OS, where connectivity frequently switches between Wi-Fi, Bluetooth proxy (via phone), and LTE, TDLib's internal socket-based detection was unreliable.
+
+**Solution:** Added `ConnectivityManager.registerDefaultNetworkCallback()` that:
+
+- Detects when network becomes available → calls `TdApi.SetNetworkType` to wake TDLib
+- Detects when network is lost → checks for remaining networks (e.g., Bluetooth proxy) before telling TDLib to go offline
+- Tracks network capability changes (Wi-Fi ↔ Bluetooth ↔ Cellular) and updates TDLib accordingly
+- Uses `registerDefaultNetworkCallback` (not `registerNetworkCallback`) for proper Wear OS proxy support
+- Properly unregisters callback in `close()` to prevent memory leaks
+
+**Files:** `TgApi.kt` (new methods: `registerNetworkCallback()`, `getActiveNetworkType()`, `getNetworkTypeFromCapabilities()`)
+
+#### 2. 🔋 Battery Optimization Exemption (`AndroidManifest.xml`, `MainActivity.kt`)
+
+**Problem:** Wear OS aggressively kills background network connections via battery optimization. No exemption was requested.
+
+**Solution:**
+
+- Added `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` permission to manifest
+- Added `requestBatteryOptimizationExemption()` method called during app initialization
+- Prompts user once to exempt TGwear from battery optimization
+
+**Files:** `AndroidManifest.xml`, `MainActivity.kt`
+
+#### 3. 🔄 Connection Recovery Timer (`TgApi.kt`, `UpdateHandle.kt`)
+
+**Problem:** When TDLib entered `Connecting` state, the handler simply set the title and waited passively. No retry or recovery mechanism existed.
+
+**Solution:** Added a 30-second recovery timer system:
+
+- When TDLib enters `Connecting` or `ConnectingToProxy` state → starts a 30-second timer
+- After 30s of being stuck → forces a `SetNetworkType(None)` → `SetNetworkType(actual)` cycle to kick reconnection
+- Timer reschedules itself if still stuck (repeated 30s retries)
+- Timer is cancelled when connection becomes `Ready`, `Updating`, or `WaitingForNetwork`
+
+**Files:** `TgApi.kt` (new methods: `scheduleConnectionRecovery()`, `cancelConnectionRecovery()`), `UpdateHandle.kt`
+
+#### 4. 🧵 Replace `runBlocking` with Proper Coroutines
+
+**Problem:** 24+ `runBlocking` calls throughout the codebase could deadlock the main thread, especially when TDLib was in a connecting/waiting state. This caused the UI to freeze and appear permanently stuck.
+
+**Solution:** Replaced all instances with appropriate async patterns:
+
+| File | Before | After |
+|------|--------|-------|
+| `ChatActivity.onDestroy` | `runBlocking { exitChatPage() }` | `lifecycleScope.launch(Dispatchers.IO)` |
+| `ChatActivity.init` | `runBlocking { getChat() }` | Direct suspend call (already in suspend fun) |
+| `ChatActivity` longPress | `runBlocking { getMessageTypeById() }` | `lifecycleScope.launch(Dispatchers.IO)` |
+| `ChatInfoActivity.init` | 6× `runBlocking { ... }` | Direct suspend calls (already in suspend fun) |
+| `LoginActivity.onDestroy` | `runBlocking { client.send() }` | Direct `client.send()` (already async) |
+| `VoiceCallActivity.onCreate` | `runBlocking { getChat() }` | `CoroutineScope(Dispatchers.IO).launch` + `withContext(Main)` |
+| `SendRequest.deleteMessageById` | `runBlocking { sendRequest() }` | `CoroutineScope(Dispatchers.IO).launch` |
+
+**Files:** `ChatActivity.kt`, `ChatInfoActivity.kt`, `LoginActivity.kt`, `VoiceCallActivity.kt`, `SendRequest.kt`
 
 ---
 
@@ -512,7 +623,7 @@ class ChatViewModel(
 
 ### 5. 🔋 Wear OS Specific Improvements
 
-#### 5.1 Add Battery Optimization Exemption
+#### 5.1 Battery Optimization Exemption ✅ (Implemented 2026-02-22)
 
 ```xml
 <!-- AndroidManifest.xml -->
@@ -520,7 +631,7 @@ class ChatViewModel(
 ```
 
 ```kotlin
-// Request exemption for reliable background operation
+// Implemented in MainActivity.kt - requestBatteryOptimizationExemption()
 fun requestBatteryOptimizationExemption(context: Context) {
     val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
     if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
@@ -656,17 +767,20 @@ TGwear/
 
 ### Priority Action Items
 
-| Priority | Action | Effort | Impact |
-|----------|--------|--------|--------|
-| 1 | Remove hardcoded API credentials | Low | Critical |
-| 2 | Replace `runBlocking` with coroutines | Medium | High |
-| 3 | Fix memory leak in TgApiManager | Medium | High |
-| 4 | Replace println with proper logging | Low | Medium |
-| 5 | Add ViewModel layer | High | High |
-| 6 | Split UpdateHandle.kt | Medium | Medium |
-| 7 | Add Wear OS ambient mode | Medium | Medium |
-| 8 | Implement dependency injection | High | High |
+| Priority | Action | Effort | Impact | Status |
+|----------|--------|--------|--------|--------|
+| ~~1~~ | ~~Replace `runBlocking` with coroutines~~ | ~~Medium~~ | ~~High~~ | ✅ Done |
+| ~~2~~ | ~~Add network connectivity monitoring~~ | ~~Medium~~ | ~~Critical~~ | ✅ Done |
+| ~~3~~ | ~~Add battery optimization exemption~~ | ~~Low~~ | ~~High~~ | ✅ Done |
+| ~~4~~ | ~~Add connection recovery mechanism~~ | ~~Medium~~ | ~~High~~ | ✅ Done |
+| 5 | Remove hardcoded API credentials | Low | Critical | ⚠️ Open |
+| 6 | Fix memory leak in TgApiManager | Medium | High | ⚠️ Open |
+| 7 | Replace println with proper logging | Low | Medium | ⚠️ Open |
+| 8 | Add ViewModel layer | High | High | ⚠️ Open |
+| 9 | Split UpdateHandle.kt | Medium | Medium | ⚠️ Open |
+| 10 | Add Wear OS ambient mode | Medium | Medium | ⚠️ Open |
+| 11 | Implement dependency injection | High | High | ⚠️ Open |
 
 ---
 
-*This document was generated by analyzing the TGwear codebase. For questions or updates, refer to the source code.*
+*This document was generated by analyzing the TGwear codebase. Last updated: 2026-02-22.*
