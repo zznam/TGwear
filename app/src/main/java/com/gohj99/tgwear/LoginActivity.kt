@@ -50,7 +50,6 @@ import com.google.zxing.WriterException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.drinkless.tdlib.Client
@@ -82,13 +81,11 @@ class LoginActivity : BaseActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // 在这里释放 TDLib 资源
-        runBlocking {
-            if (!showPasswordScreen.value && loginWay.value == "QrCode") {
-                client.send(TdApi.LogOut()) {}
-            }
-            client.send(TdApi.Close()) {}
+        // Release TDLib resources - client.send is already async, no need for runBlocking
+        if (!showPasswordScreen.value && loginWay.value == "QrCode") {
+            client.send(TdApi.LogOut()) {}
         }
+        client.send(TdApi.Close()) {}
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
