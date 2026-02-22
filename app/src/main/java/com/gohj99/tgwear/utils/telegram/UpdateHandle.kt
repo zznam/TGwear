@@ -434,6 +434,8 @@ internal fun TgApi.handleConnectionUpdate(update: TdApi.UpdateConnectionState) {
     when (update.state.constructor) {
         TdApi.ConnectionStateReady.CONSTRUCTOR -> {
             // 已经成功连接到 Telegram 服务器
+            isInConnectingState = false
+            cancelConnectionRecovery()
             topTitle.value = ""
             println("TgApi: Connection Ready")
             // 更新通知
@@ -459,24 +461,34 @@ internal fun TgApi.handleConnectionUpdate(update: TdApi.UpdateConnectionState) {
 
         TdApi.ConnectionStateConnecting.CONSTRUCTOR -> {
             // 正在尝试连接到 Telegram 服务器
+            isInConnectingState = true
             topTitle.value = context.getString(R.string.Connecting)
             println("TgApi: Connecting")
+            // Schedule connection recovery - if still stuck after 30s, force reconnect
+            scheduleConnectionRecovery()
         }
 
         TdApi.ConnectionStateConnectingToProxy.CONSTRUCTOR -> {
             // 正在尝试通过代理连接到 Telegram 服务器
+            isInConnectingState = true
             topTitle.value = context.getString(R.string.Connecting_Proxy)
             println("TgApi: Connecting To Proxy")
+            // Schedule connection recovery for proxy connections too
+            scheduleConnectionRecovery()
         }
 
         TdApi.ConnectionStateUpdating.CONSTRUCTOR -> {
             // 正在更新 Telegram 数据库
+            isInConnectingState = false
+            cancelConnectionRecovery()
             topTitle.value = context.getString(R.string.Update)
             println("TgApi: Updating")
         }
 
         TdApi.ConnectionStateWaitingForNetwork.CONSTRUCTOR -> {
             // 正在等待网络连接
+            isInConnectingState = false
+            cancelConnectionRecovery()
             topTitle.value = context.getString(R.string.Offline)
             println("TgApi: Waiting For Network")
         }

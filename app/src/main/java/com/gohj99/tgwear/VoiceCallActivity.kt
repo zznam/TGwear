@@ -34,7 +34,7 @@ import com.gohj99.tgwear.utils.telegram.getChat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.drinkless.tdlib.TdApi
 
 private const val RECORD_AUDIO_PERMISSION = Manifest.permission.RECORD_AUDIO
@@ -158,26 +158,38 @@ class VoiceCallActivity : BaseActivity() {
         // 检测权限
         checkAndRequestAudioPermission(this)
 
-        //println("调试1")
-        chatItem = tgApi?.chatsList?.value?.firstOrNull { it.id == callItem.userId } ?: runBlocking {
-            if (tgApi != null) {
-                val chatObject = tgApi.getChat(callItem.userId)  // 在 runBlocking 中赋值
-                Chat(
-                    id = callItem.userId,
-                    title = chatObject?.title ?: "",
-                    chatPhoto = chatObject?.photo?.small
-                )
-            } else {
-                val chatObject = pushTgApi!!.getChat(callItem.userId)  // 在 runBlocking 中赋值
-                Chat(
-                    id = callItem.userId,
-                    title = chatObject.title ?: "",
-                    chatPhoto = chatObject.photo?.small
-                )
+        // Fetch chat info asynchronously, then set UI
+        val cachedChat = tgApi?.chatsList?.value?.firstOrNull { it.id == callItem.userId }
+        if (cachedChat != null) {
+            chatItem = cachedChat
+            setupCallUI()
+        } else {
+            // Fetch async and set up UI when ready
+            CoroutineScope(Dispatchers.IO).launch {
+                val fetchedChat = if (tgApi != null) {
+                    val chatObject = tgApi.getChat(callItem.userId)
+                    Chat(
+                        id = callItem.userId,
+                        title = chatObject?.title ?: "",
+                        chatPhoto = chatObject?.photo?.small
+                    )
+                } else {
+                    val chatObject = pushTgApi!!.getChat(callItem.userId)
+                    Chat(
+                        id = callItem.userId,
+                        title = chatObject.title ?: "",
+                        chatPhoto = chatObject.photo?.small
+                    )
+                }
+                withContext(Dispatchers.Main) {
+                    chatItem = fetchedChat
+                    setupCallUI()
+                }
             }
         }
-        //println("调试2")
+    }
 
+    private fun setupCallUI() {
         setContent {
             TGwearTheme {
                 VoiceCallScreen(

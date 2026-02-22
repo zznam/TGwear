@@ -15,7 +15,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.drinkless.tdlib.TdApi
 
@@ -121,7 +120,7 @@ internal suspend fun <R : TdApi.Object> TgApi.sendRequest(
 // 2. 根据消息id删除消息
 fun TgApi.deleteMessageById(messageId: Long) {
     println("Deleting message")
-    runBlocking {
+    CoroutineScope(Dispatchers.IO).launch {
         // 创建一个请求来删除指定 ID 的消息
         val getMessageRequest = TdApi.DeleteMessages(saveChatId, longArrayOf(messageId) , true)
         try {

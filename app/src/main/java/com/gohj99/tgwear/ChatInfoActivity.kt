@@ -31,7 +31,6 @@ import com.gohj99.tgwear.utils.telegram.getUser
 import com.gohj99.tgwear.utils.telegram.getUserFullInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import org.drinkless.tdlib.TdApi
 
 class ChatInfoActivity : BaseActivity() {
@@ -96,12 +95,8 @@ class ChatInfoActivity : BaseActivity() {
                 // 私人聊天
                 is TdApi.ChatTypePrivate -> {
                     subtitle = getString(R.string.Private_Chat)
-                    val userInfo = runBlocking {
-                        tgApi!!.getUser(chatType.userId)
-                    }
-                    val userFullInfo = runBlocking {
-                        tgApi!!.getUserFullInfo(chatType.userId)
-                    }
+                    val userInfo = tgApi!!.getUser(chatType.userId)
+                    val userFullInfo = tgApi!!.getUserFullInfo(chatType.userId)
                     if (userInfo != null) {
                         if (userInfo.type is TdApi.UserTypeBot) {
                             subtitle = getString(R.string.Bot)
@@ -145,16 +140,12 @@ class ChatInfoActivity : BaseActivity() {
                 is TdApi.ChatTypeBasicGroup -> {
                     //println("普通群组")
                     subtitle = getString(R.string.Group_Chat)
-                    val groupInfo = runBlocking {
-                        tgApi!!.getBasicGroup(chatType.basicGroupId)
-                    }
+                    val groupInfo = tgApi!!.getBasicGroup(chatType.basicGroupId)
                     //println(groupInfo)
                     if (groupInfo != null) {
                         subtitle = "${groupInfo.memberCount} ${getString(R.string.Member)}"
                     }
-                    val groupFullInfo = runBlocking {
-                        tgApi!!.getBasicGroupFullInfo(chatType.basicGroupId)
-                    }
+                    val groupFullInfo = tgApi!!.getBasicGroupFullInfo(chatType.basicGroupId)
                     //println(groupFullInfo)
                     if (groupFullInfo != null) {
                         if (groupFullInfo.inviteLink != null) {
@@ -172,9 +163,7 @@ class ChatInfoActivity : BaseActivity() {
                 is TdApi.ChatTypeSupergroup -> {
                     //println("超级群组")
                     subtitle = getString(R.string.Supergroup_Chat)
-                    val supergroupInfo = runBlocking {
-                        tgApi!!.getSupergroup(chatType.supergroupId)
-                    }
+                    val supergroupInfo = tgApi!!.getSupergroup(chatType.supergroupId)
                     if (chatType.isChannel) {
                         // 频道
                         subtitle = getString(R.string.Channel)
@@ -195,9 +184,7 @@ class ChatInfoActivity : BaseActivity() {
                             info += "\n**${getString(R.string.url)}**\nhttps://t.me/${supergroupInfo.usernames!!.activeUsernames[0]}"
                         }
                         // 获取超级组详细信息
-                        val supergroupFullInfo = runBlocking {
-                            tgApi!!.getSupergroupFullInfo(chatType.supergroupId)
-                        }
+                        val supergroupFullInfo = tgApi!!.getSupergroupFullInfo(chatType.supergroupId)
                         if (supergroupFullInfo != null) {
                             // 超级组简介
                             if (supergroupFullInfo.description != "") {

@@ -10,7 +10,13 @@ package com.gohj99.tgwear.utils.telegram
 
 import android.content.Context
 import android.content.Context.MODE_PRIVATE
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateMapOf
@@ -61,6 +67,13 @@ class TgApi(
     var voipItem: VoIPInstance? = null
     var onCallback = mutableMapOf<Long, (TdApi.Call, String?) -> Unit>()
     var isIncomingCall = true
+
+    // Network connectivity monitoring for Wear OS
+    private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var connectionRecoveryRunnable: Runnable? = null
+    internal var isInConnectingState = false
 
     init {
         // 获取应用外部数据目录
@@ -127,6 +140,103 @@ class TgApi(
                 if (user.id == 7513554495 && user.usernames?.activeUsernames[0] == "tgwear_review_bot") isTestMode()
             }
         }
+
+        // Register network connectivity callback to detect network changes on Wear OS
+        registerNetworkCallback()
+    }
+
+    /**
+     * Registers a NetworkCallback to monitor connectivity changes.
+     * When network becomes available, informs TDLib via SetNetworkType
+     * so it can reconnect immediately instead of waiting for its own timeout.
+     */
+    private fun registerNetworkCallback() {
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                Log.d("TgApi", "Network available - informing TDLib")
+                val networkType = getActiveNetworkType()
+                client.send(TdApi.SetNetworkType(networkType)) { result ->
+                    Log.d("TgApi", "SetNetworkType (onAvailable) result: $result")
+                }
+                // Cancel any pending recovery since network is back
+                cancelConnectionRecovery()
+            }
+
+            override fun onLost(network: Network) {
+                Log.d("TgApi", "Network lost - informing TDLib")
+                client.send(TdApi.SetNetworkType(TdApi.NetworkTypeNone())) { result ->
+                    Log.d("TgApi", "SetNetworkType (onLost) result: $result")
+                }
+            }
+
+            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                val networkType = getNetworkTypeFromCapabilities(capabilities)
+                client.send(TdApi.SetNetworkType(networkType)) { result ->
+                    Log.d("TgApi", "SetNetworkType (onCapabilitiesChanged) result: $result")
+                }
+            }
+        }
+
+        try {
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+            connectivityManager.registerNetworkCallback(request, callback)
+            networkCallback = callback
+        } catch (e: Exception) {
+            Log.e("TgApi", "Failed to register network callback: ${e.message}")
+        }
+    }
+
+    /**
+     * Get the current active network type to inform TDLib.
+     */
+    private fun getActiveNetworkType(): TdApi.NetworkType {
+        val activeNetwork = connectivityManager.activeNetwork ?: return TdApi.NetworkTypeNone()
+        val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
+            ?: return TdApi.NetworkTypeNone()
+        return getNetworkTypeFromCapabilities(capabilities)
+    }
+
+    private fun getNetworkTypeFromCapabilities(capabilities: NetworkCapabilities): TdApi.NetworkType {
+        return when {
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> TdApi.NetworkTypeWiFi()
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> TdApi.NetworkTypeMobile()
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) -> TdApi.NetworkTypeOther()
+            else -> TdApi.NetworkTypeOther()
+        }
+    }
+
+    /**
+     * Schedules a connection recovery attempt after a timeout.
+     * If TDLib is stuck in Connecting state for too long, this forces
+     * a network type refresh to kick the reconnection.
+     */
+    internal fun scheduleConnectionRecovery() {
+        cancelConnectionRecovery()
+        val runnable = Runnable {
+            if (isInConnectingState) {
+                Log.d("TgApi", "Connection recovery: forcing network type refresh")
+                val networkType = getActiveNetworkType()
+                // First set to None, then back to actual type, to force TDLib to reconnect
+                client.send(TdApi.SetNetworkType(TdApi.NetworkTypeNone())) {
+                    client.send(TdApi.SetNetworkType(networkType)) { result ->
+                        Log.d("TgApi", "Connection recovery SetNetworkType result: $result")
+                    }
+                }
+                // Schedule another recovery in case this one didn't work
+                if (isInConnectingState) {
+                    scheduleConnectionRecovery()
+                }
+            }
+        }
+        connectionRecoveryRunnable = runnable
+        mainHandler.postDelayed(runnable, 30_000) // Retry after 30 seconds
+    }
+
+    internal fun cancelConnectionRecovery() {
+        connectionRecoveryRunnable?.let { mainHandler.removeCallbacks(it) }
+        connectionRecoveryRunnable = null
     }
 
     fun isTestMode() {
@@ -347,6 +457,14 @@ class TgApi(
     // 关闭连接
     fun close() {
         println("Closing client")
+        // Unregister network callback to prevent leaks
+        try {
+            networkCallback?.let { connectivityManager.unregisterNetworkCallback(it) }
+            networkCallback = null
+        } catch (e: Exception) {
+            Log.e("TgApi", "Failed to unregister network callback: ${e.message}")
+        }
+        cancelConnectionRecovery()
         client.send(TdApi.Close()) {}
     }
 }

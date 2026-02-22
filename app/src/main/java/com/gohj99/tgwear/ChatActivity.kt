@@ -56,7 +56,6 @@ import com.google.gson.GsonBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.drinkless.tdlib.TdApi
 import java.io.File
@@ -84,8 +83,8 @@ class ChatActivity : BaseActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        if (inputText.value != "") {
-            runBlocking {
+        lifecycleScope.launch(Dispatchers.IO) {
+            if (inputText.value != "") {
                 TgApiManager.tgApi?.exitChatPage(
                     TdApi.DraftMessage(
                         null,
@@ -99,9 +98,7 @@ class ChatActivity : BaseActivity() {
                     ),
                     selectTopicId.value
                 )
-            }
-        } else {
-            runBlocking {
+            } else {
                 TgApiManager.tgApi?.exitChatPage()
             }
         }
@@ -215,10 +212,7 @@ class ChatActivity : BaseActivity() {
         chat?.let { safeChat ->
             var chatObject: TdApi.Chat?  // 在外部声明变量
 
-            runBlocking {
-                chatObject = tgApi!!.getChat(safeChat.id)  // 在 runBlocking 中赋值
-            }
-
+            chatObject = tgApi!!.getChat(safeChat.id)  // Already in suspend function
             //println("获取到的chatObject")
             //println(chatObject)
             // 这里可以使用 chatObject，因为它在 runBlocking 块外声明了
@@ -385,17 +379,20 @@ class ChatActivity : BaseActivity() {
                                         }
 
                                         "GetMessage" -> {
-                                            return@SplashChatScreen runBlocking { // 同步阻塞当前线程
+                                            // Launch async to avoid blocking main thread
+                                            lifecycleScope.launch(Dispatchers.IO) {
                                                 try {
                                                     tgApi!!.getMessageTypeById(message.id)?.let { messageType ->
                                                         println("GetMessage result: $messageType")
                                                         val gson = Gson()
-                                                        formatJson(gson.toJson(messageType))
-                                                    } ?: "error"
+                                                        val formatted = formatJson(gson.toJson(messageType))
+                                                        // TODO: display formatted result to user
+                                                    }
                                                 } catch (e: Exception) {
-                                                    "error: ${e.message}"
+                                                    println("GetMessage error: ${e.message}")
                                                 }
                                             }
+                                            return@SplashChatScreen "OK"
                                             /*val gson = Gson()
                                             val messageJson = gson.toJson(message)
                                             return@SplashChatScreen formatJson(messageJson)*/
@@ -404,7 +401,7 @@ class ChatActivity : BaseActivity() {
                                         "Save" -> {
                                             when (message.content) {
                                                 is TdApi.MessagePhoto -> {
-                                                    return@SplashChatScreen runBlocking {
+                                                    lifecycleScope.launch(Dispatchers.IO) {
                                                         tgApi!!.getMessageTypeById(message.id)?.let {
                                                             val content = it.content as TdApi.MessagePhoto
                                                             val photo = content.photo
@@ -413,59 +410,59 @@ class ChatActivity : BaseActivity() {
                                                                 photoSizes.maxByOrNull { it.width * it.height }
                                                             highestResPhoto?.let { itPhoto ->
                                                                 val file = itPhoto.photo
-                                                                if (file.local.isDownloadingCompleted) {
-                                                                    Toast.makeText(
-                                                                        this@ChatActivity,
-                                                                        saveImageToExternalStorage(
+                                                                withContext(Dispatchers.Main) {
+                                                                    if (file.local.isDownloadingCompleted) {
+                                                                        Toast.makeText(
                                                                             this@ChatActivity,
-                                                                            file.local.path
-                                                                        ),
-                                                                        Toast.LENGTH_SHORT
-                                                                    ).show()
-                                                                    "OK"
-                                                                } else {
-                                                                    Toast.makeText(
-                                                                        this@ChatActivity,
-                                                                        getString(R.string.Download_first),
-                                                                        Toast.LENGTH_SHORT
-                                                                    ).show()
-                                                                    "OK"
+                                                                            saveImageToExternalStorage(
+                                                                                this@ChatActivity,
+                                                                                file.local.path
+                                                                            ),
+                                                                            Toast.LENGTH_SHORT
+                                                                        ).show()
+                                                                    } else {
+                                                                        Toast.makeText(
+                                                                            this@ChatActivity,
+                                                                            getString(R.string.Download_first),
+                                                                            Toast.LENGTH_SHORT
+                                                                        ).show()
+                                                                    }
                                                                 }
                                                             }
                                                         }
-                                                        "OK"
                                                     }
+                                                    return@SplashChatScreen "OK"
                                                 }
 
                                                 is TdApi.MessageVideo -> {
-                                                    return@SplashChatScreen runBlocking {
+                                                    lifecycleScope.launch(Dispatchers.IO) {
                                                         tgApi!!.getMessageTypeById(message.id)?.let {
                                                             val content = it.content as TdApi.MessageVideo
                                                             val video = content.video
                                                             video.video.let { videoIt ->
                                                                 val videoFile: TdApi.File = videoIt
-                                                                if (videoFile.local.isDownloadingCompleted) {
-                                                                    Toast.makeText(
-                                                                        this@ChatActivity,
-                                                                        saveVideoToExternalStorage(
+                                                                withContext(Dispatchers.Main) {
+                                                                    if (videoFile.local.isDownloadingCompleted) {
+                                                                        Toast.makeText(
                                                                             this@ChatActivity,
-                                                                            videoFile.local.path
-                                                                        ),
-                                                                        Toast.LENGTH_SHORT
-                                                                    ).show()
-                                                                    "OK"
-                                                                } else {
-                                                                    Toast.makeText(
-                                                                        this@ChatActivity,
-                                                                        getString(R.string.Download_first),
-                                                                        Toast.LENGTH_SHORT
-                                                                    ).show()
-                                                                    "OK"
+                                                                            saveVideoToExternalStorage(
+                                                                                this@ChatActivity,
+                                                                                videoFile.local.path
+                                                                            ),
+                                                                            Toast.LENGTH_SHORT
+                                                                        ).show()
+                                                                    } else {
+                                                                        Toast.makeText(
+                                                                            this@ChatActivity,
+                                                                            getString(R.string.Download_first),
+                                                                            Toast.LENGTH_SHORT
+                                                                        ).show()
+                                                                    }
                                                                 }
                                                             }
                                                         }
-                                                        "OK"
                                                     }
+                                                    return@SplashChatScreen "OK"
                                                 }
                                             }
                                             Toast.makeText(

@@ -12,9 +12,12 @@ import android.annotation.SuppressLint
 import android.app.NotificationManager
 import android.content.Intent
 import android.content.SharedPreferences
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
@@ -388,6 +391,10 @@ class MainActivity : BaseActivity() {
                     TgApiManager.tgApi?.getContacts(contacts)
                 }
                 TgApiManager.tgApi?.loadChats(15)
+
+                // Request battery optimization exemption for reliable connections
+                requestBatteryOptimizationExemption()
+
                 // 检查是否切换账号和是否打开消息推送
                 if (settingsSharedPref.getBoolean("Change_account", false)) {
                     with(sharedPref.edit()) {
@@ -542,6 +549,24 @@ class MainActivity : BaseActivity() {
             startActivity(intent)
             android.os.Process.killProcess(android.os.Process.myPid())
         }, 1000)
+    }
+
+    /**
+     * Requests battery optimization exemption so Wear OS doesn't kill
+     * the app's network connections in the background.
+     */
+    private fun requestBatteryOptimizationExemption() {
+        try {
+            val powerManager = getSystemService(POWER_SERVICE) as PowerManager
+            if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Failed to request battery optimization exemption: ${e.message}")
+        }
     }
 }
 
