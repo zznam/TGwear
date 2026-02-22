@@ -13,7 +13,6 @@ import android.content.Context.MODE_PRIVATE
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -149,6 +148,12 @@ class TgApi(
      * Registers a NetworkCallback to monitor connectivity changes.
      * When network becomes available, informs TDLib via SetNetworkType
      * so it can reconnect immediately instead of waiting for its own timeout.
+     *
+     * On Wear OS, the watch can connect to the internet via:
+     * - Wi-Fi (direct)
+     * - Bluetooth proxy (via connected phone)
+     * - LTE (if available)
+     * We must check for all of these before reporting no network.
      */
     private fun registerNetworkCallback() {
         val callback = object : ConnectivityManager.NetworkCallback() {
@@ -163,9 +168,20 @@ class TgApi(
             }
 
             override fun onLost(network: Network) {
-                Log.d("TgApi", "Network lost - informing TDLib")
-                client.send(TdApi.SetNetworkType(TdApi.NetworkTypeNone())) { result ->
-                    Log.d("TgApi", "SetNetworkType (onLost) result: $result")
+                // On Wear OS, when Wi-Fi is lost, the watch may still have internet
+                // via Bluetooth proxy through the connected phone. Check if there's
+                // still an active network before telling TDLib we're offline.
+                val remainingNetworkType = getActiveNetworkType()
+                if (remainingNetworkType is TdApi.NetworkTypeNone) {
+                    Log.d("TgApi", "All networks lost - informing TDLib")
+                    client.send(TdApi.SetNetworkType(TdApi.NetworkTypeNone())) { result ->
+                        Log.d("TgApi", "SetNetworkType (onLost) result: $result")
+                    }
+                } else {
+                    Log.d("TgApi", "Network lost but another network still active (e.g. Bluetooth proxy)")
+                    client.send(TdApi.SetNetworkType(remainingNetworkType)) { result ->
+                        Log.d("TgApi", "SetNetworkType (onLost, fallback) result: $result")
+                    }
                 }
             }
 
@@ -178,10 +194,9 @@ class TgApi(
         }
 
         try {
-            val request = NetworkRequest.Builder()
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .build()
-            connectivityManager.registerNetworkCallback(request, callback)
+            // Use registerDefaultNetworkCallback to track the system's preferred
+            // network, which properly handles Wear OS Bluetooth proxy connections
+            connectivityManager.registerDefaultNetworkCallback(callback)
             networkCallback = callback
         } catch (e: Exception) {
             Log.e("TgApi", "Failed to register network callback: ${e.message}")
